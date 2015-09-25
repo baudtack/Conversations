@@ -470,7 +470,7 @@ public class XmppConnectionService extends Service implements OnPhoneContactsLoa
 					sendMessage(new Message(
 								conversation,
 								messageText,
-								conversation.getNextEncryption(forceEncryption())
+								conversation.getNextEncryption()
 								));
 					getNotificationService().clear(conversation);
 					conversation.markRead();
