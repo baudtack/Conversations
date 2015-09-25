@@ -12,9 +12,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.support.annotation.NonNull;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationCompat.BigPictureStyle;
 import android.support.v4.app.NotificationCompat.Builder;
+import android.support.v4.app.RemoteInput;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.Html;
 import android.util.DisplayMetrics;
@@ -283,11 +285,26 @@ public class NotificationService {
 						createDownloadIntent(message)
 						);
 			}
+
 			if ((message = getFirstLocationMessage(messages)) != null) {
 				mBuilder.addAction(R.drawable.ic_room_white_24dp,
 						mXmppConnectionService.getString(R.string.show_location),
 						createShowLocationIntent(message));
 			}
+
+			final RemoteInput remoteInput = new RemoteInput.Builder(XmppConnectionService.TYPE_VOICE_REPLY)
+				.setLabel(mXmppConnectionService.getString(R.string.reply_label))
+				.build();
+			final NotificationCompat.Action action =
+				new NotificationCompat.Action.Builder(
+						conversation.getMode() == Conversation.MODE_MULTI ?
+						R.drawable.ic_action_reply_all : R.drawable.ic_action_reply,
+						mXmppConnectionService.getString(R.string.reply_label),
+						createReplyIntent(conversation)
+						).addRemoteInput(remoteInput).build();
+			mBuilder.extend(new NotificationCompat.WearableExtender().addAction(action));
+
+
 			mBuilder.setContentIntent(createContentIntent(conversation));
 		}
 		return mBuilder;
@@ -382,6 +399,20 @@ public class NotificationService {
 		return createOpenConversationsIntent();
 	}
 
+	private PendingIntent createReplyIntent(@NonNull final Conversation conversation) {
+
+		final Intent sendMessageIntent = new Intent(mXmppConnectionService, EventReceiver.class);
+
+		if (conversation.getUuid() != null) {
+			sendMessageIntent.putExtra(XmppConnectionService.EXTRA_CONVERSATION, conversation.getUuid());
+			sendMessageIntent.setType(XmppConnectionService.EXTRA_VOICE_REPLY);
+		}
+		sendMessageIntent.setAction(XmppConnectionService.ACTION_SEND_MESSAGE);
+
+		return PendingIntent.getBroadcast(mXmppConnectionService, 0, sendMessageIntent,
+				PendingIntent.FLAG_UPDATE_CURRENT);
+	}
+
 	private PendingIntent createContentIntent(final String conversationUuid, final String downloadMessageUuid) {
 		final TaskStackBuilder stackBuilder = TaskStackBuilder
 			.create(mXmppConnectionService);
@@ -389,17 +420,16 @@ public class NotificationService {
 
 		final Intent viewConversationIntent = new Intent(mXmppConnectionService,
 				ConversationActivity.class);
-		if (downloadMessageUuid != null) {
-			viewConversationIntent.setAction(ConversationActivity.ACTION_DOWNLOAD);
-		} else {
-			viewConversationIntent.setAction(Intent.ACTION_VIEW);
-		}
+
 		if (conversationUuid != null) {
 			viewConversationIntent.putExtra(ConversationActivity.CONVERSATION, conversationUuid);
 			viewConversationIntent.setType(ConversationActivity.VIEW_CONVERSATION);
 		}
 		if (downloadMessageUuid != null) {
 			viewConversationIntent.putExtra(ConversationActivity.MESSAGE, downloadMessageUuid);
+			viewConversationIntent.setAction(ConversationActivity.ACTION_DOWNLOAD);
+		} else {
+			viewConversationIntent.setAction(Intent.ACTION_VIEW);
 		}
 
 		stackBuilder.addNextIntent(viewConversationIntent);

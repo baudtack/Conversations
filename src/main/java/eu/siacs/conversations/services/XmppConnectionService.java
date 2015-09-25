@@ -22,6 +22,7 @@ import android.os.PowerManager.WakeLock;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.ContactsContract;
+import android.support.v4.app.RemoteInput;
 import android.util.Log;
 import android.util.LruCache;
 
@@ -110,8 +111,17 @@ public class XmppConnectionService extends Service implements OnPhoneContactsLoa
 	public static final String ACTION_CLEAR_NOTIFICATION = "clear_notification";
 	public static final String ACTION_DISABLE_FOREGROUND = "disable_foreground";
 	private static final String ACTION_MERGE_PHONE_CONTACTS = "merge_phone_contacts";
-	public static final String ACTION_TRY_AGAIN = "try_again";
+
+        public static final String ACTION_TRY_AGAIN = "try_again";
 	public static final String ACTION_DISABLE_ACCOUNT = "disable_account";
+
+	public static final String ACTION_SEND_MESSAGE = "eu.siacs.action.SEND_MESSAGE";
+
+	public static final String TYPE_VOICE_REPLY = "voice_reply";
+
+	public static final String EXTRA_CONVERSATION = "conversation_uuid";
+	public static final String EXTRA_VOICE_REPLY = "voice_reply";
+
 	private ContentObserver contactObserver = new ContentObserver(null) {
 		@Override
 		public void onChange(boolean selfChange) {
@@ -431,7 +441,7 @@ public class XmppConnectionService extends Service implements OnPhoneContactsLoa
 		});
 	}
 
-	public Conversation find(Bookmark bookmark) {
+	public Conversation find(final Bookmark bookmark) {
 		return find(bookmark.getAccount(), bookmark.getJid());
 	}
 
@@ -439,8 +449,38 @@ public class XmppConnectionService extends Service implements OnPhoneContactsLoa
 		return find(getConversations(), account, jid);
 	}
 
+	private static CharSequence getVoiceReplyText(final Intent intent) {
+		final Bundle remoteInput = RemoteInput.getResultsFromIntent(intent);
+		if (remoteInput != null) {
+			return remoteInput.getCharSequence(EXTRA_VOICE_REPLY);
+		}
+		return null;
+	}
+
+	private void handleSendMessageIntent(final Intent intent) {
+		if (intent == null || intent.getType() == null) {
+			return;
+		}
+		switch (intent.getType()) {
+			case TYPE_VOICE_REPLY:
+				final String uuid = (String) intent.getExtras().get(EXTRA_CONVERSATION);
+				final String messageText = getVoiceReplyText(intent).toString();
+				final Conversation conversation = findConversationByUuid(uuid);
+				if (conversation != null && messageText != null && !messageText.isEmpty()) {
+					sendMessage(new Message(
+								conversation,
+								messageText,
+								conversation.getNextEncryption(forceEncryption())
+								));
+					getNotificationService().clear(conversation);
+					conversation.markRead();
+				}
+				break;
+		}
+	}
+
 	@Override
-	public int onStartCommand(Intent intent, int flags, int startId) {
+	public int onStartCommand(final Intent intent, final int flags, final int startId) {
 		final String action = intent == null ? null : intent.getAction();
 		if (action != null) {
 			switch (action) {
@@ -480,12 +520,14 @@ public class XmppConnectionService extends Service implements OnPhoneContactsLoa
 					} catch (final InvalidJidException ignored) {
 						break;
 					}
+				case ACTION_SEND_MESSAGE:
+					handleSendMessageIntent(intent);
 					break;
 			}
 		}
 		this.wakeLock.acquire();
 
-		for (Account account : accounts) {
+		for (final Account account : accounts) {
 			if (!account.isOptionSet(Account.OPTION_DISABLED)) {
 				if (!hasInternetConnection()) {
 					account.setStatus(Account.State.NO_INTERNET);
